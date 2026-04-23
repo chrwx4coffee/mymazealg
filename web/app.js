@@ -127,105 +127,147 @@ document.addEventListener('DOMContentLoaded', () => {
         return { padding, width, height };
     }
 
-    function getCoords(i, j, x) {
+    function getCellCenter(i, j, cols) {
         const { padding, width, height } = getPaddingAndSize();
-        const pX = padding + (i / x) * width;
-        const pY = padding + (j / x) * height;
+        const cellSizeX = width / cols;
+        const cellSizeY = height / cols;
+        const pX = padding + i * cellSizeX + cellSizeX / 2;
+        const pY = padding + j * cellSizeY + cellSizeY / 2;
         return { pX, pY };
     }
 
-    function drawBackgroundGrid(x) {
+    function getGridLineCoords(i, j, cols) {
+        const { padding, width, height } = getPaddingAndSize();
+        const cellSizeX = width / cols;
+        const cellSizeY = height / cols;
+        const pX = padding + i * cellSizeX;
+        const pY = padding + j * cellSizeY;
+        return { pX, pY };
+    }
+    
+    function drawLine(parent, x1, y1, x2, y2) {
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', x1);
+        line.setAttribute('y1', y1);
+        line.setAttribute('x2', x2);
+        line.setAttribute('y2', y2);
+        parent.appendChild(line);
+    }
+
+    function drawBackgroundGrid(cols) {
         bgGridLines.innerHTML = '';
-        const { padding, width, height } = getPaddingAndSize();
-
-        // Draw vertical lines
-        for (let i = 0; i <= x; i++) {
-            const pX = padding + (i / x) * width;
-            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            line.setAttribute('x1', pX);
-            line.setAttribute('y1', padding);
-            line.setAttribute('x2', pX);
-            line.setAttribute('y2', padding + height);
-            bgGridLines.appendChild(line);
-        }
-
-        // Draw horizontal lines
-        for (let j = 0; j <= x; j++) {
-            const pY = padding + (j / x) * height;
-            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            line.setAttribute('x1', padding);
-            line.setAttribute('y1', pY);
-            line.setAttribute('x2', padding + width);
-            line.setAttribute('y2', pY);
-            bgGridLines.appendChild(line);
-        }
-    }
-
-    function getEdgeId(i1, j1, i2, j2) {
-        if (i1 === i2) {
-            return `v_${i1}_${Math.min(j1, j2)}`;
-        } else {
-            return `h_${Math.min(i1, i2)}_{j1}`;
-        }
-    }
-
-    function generateWalls(x, explicitPath) {
-        wallsGroup.innerHTML = '';
-        const { padding, width, height } = getPaddingAndSize();
-        const pathEdges = new Set();
         
-        // Record all edges used by path
-        // Since path can jump multiple cells (e.g. 0,0 to 3,0), we need to iterate each sub-segment
+        for (let i = 0; i <= cols; i++) {
+            const top = getGridLineCoords(i, 0, cols);
+            const bot = getGridLineCoords(i, cols, cols);
+            drawLine(bgGridLines, top.pX, top.pY, bot.pX, bot.pY);
+        }
+
+        for (let j = 0; j <= cols; j++) {
+            const left = getGridLineCoords(0, j, cols);
+            const right = getGridLineCoords(cols, j, cols);
+            drawLine(bgGridLines, left.pX, left.pY, right.pX, right.pY);
+        }
+    }
+
+    function generateWalls(cols, explicitPath) {
+        wallsGroup.innerHTML = '';
+        const corridorEdges = new Set();
+        const visitedCells = new Set();
+        
+        // Record all broken walls from solution path
         for (let idx = 0; idx < explicitPath.length - 1; idx++) {
             const p1 = explicitPath[idx];
             const p2 = explicitPath[idx+1];
             
             if (p1.i === p2.i) {
-                // Vertical segment
+                // Vertical segment breaks horizontal walls
                 const minJ = Math.min(p1.j, p2.j);
                 const maxJ = Math.max(p1.j, p2.j);
                 for (let j = minJ; j < maxJ; j++) {
-                    pathEdges.add(`v_${p1.i}_${j}`);
+                    corridorEdges.add(`h_${p1.i}_${j}`);
+                    visitedCells.add(`${p1.i},${j}`);
+                    visitedCells.add(`${p1.i},${j+1}`);
                 }
             } else if (p1.j === p2.j) {
-                // Horizontal segment
+                // Horizontal segment breaks vertical walls
                 const minI = Math.min(p1.i, p2.i);
                 const maxI = Math.max(p1.i, p2.i);
                 for (let i = minI; i < maxI; i++) {
-                    pathEdges.add(`h_${i}_${p1.j}`);
+                    corridorEdges.add(`v_${i}_${p1.j}`);
+                    visitedCells.add(`${i},${p1.j}`);
+                    visitedCells.add(`${i+1},${p1.j}`);
                 }
             }
         }
 
-        // Generate cosmetic random walls for untouched edges
-        const density = 0.35; // 35% chance to place a wall
-        for (let i = 0; i <= x; i++) {
-            for (let j = 0; j <= x; j++) {
-                // Horizontal edge to right (i,j) -> (i+1, j)
-                if (i < x && !pathEdges.has(`h_${i}_${j}`) && Math.random() < density) {
-                    const p1 = getCoords(i, j, x);
-                    const p2 = getCoords(i+1, j, x);
-                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                    line.setAttribute('x1', p1.pX);
-                    line.setAttribute('y1', p1.pY);
-                    line.setAttribute('x2', p2.pX);
-                    line.setAttribute('y2', p2.pY);
-                    wallsGroup.appendChild(line);
+        // DFS to generate remaining maze branches
+        const stack = Array.from(visitedCells).map(s => {
+            const parts = s.split(',');
+            return { i: parseInt(parts[0], 10), j: parseInt(parts[1], 10) };
+        });
+        
+        for (let i = stack.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [stack[i], stack[j]] = [stack[j], stack[i]];
+        }
+
+        while (stack.length > 0) {
+            const current = stack[stack.length - 1]; 
+            const neighbors = [];
+            
+            if (current.j > 0 && !visitedCells.has(`${current.i},${current.j - 1}`)) {
+                neighbors.push({ i: current.i, j: current.j - 1, wall: `h_${current.i}_${current.j - 1}` });
+            }
+            if (current.j < cols - 1 && !visitedCells.has(`${current.i},${current.j + 1}`)) {
+                neighbors.push({ i: current.i, j: current.j + 1, wall: `h_${current.i}_${current.j}` });
+            }
+            if (current.i > 0 && !visitedCells.has(`${current.i - 1},${current.j}`)) {
+                neighbors.push({ i: current.i - 1, j: current.j, wall: `v_${current.i - 1}_${current.j}` });
+            }
+            if (current.i < cols - 1 && !visitedCells.has(`${current.i + 1},${current.j}`)) {
+                neighbors.push({ i: current.i + 1, j: current.j, wall: `v_${current.i}_${current.j}` });
+            }
+
+            if (neighbors.length > 0) {
+                const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+                corridorEdges.add(next.wall);
+                visitedCells.add(`${next.i},${next.j}`);
+                stack.push({ i: next.i, j: next.j });
+            } else {
+                stack.pop();
+            }
+        }
+
+        // Draw physical walls
+        for (let i = 0; i < cols; i++) {
+            for (let j = 0; j < cols; j++) {
+                // Vertical wall right of cell (i,j)
+                if (i < cols - 1 && !corridorEdges.has(`v_${i}_${j}`)) {
+                    const top = getGridLineCoords(i+1, j, cols);
+                    const bot = getGridLineCoords(i+1, j+1, cols);
+                    drawLine(wallsGroup, top.pX, top.pY, bot.pX, bot.pY);
                 }
                 
-                // Vertical edge downwards (i,j) -> (i, j+1)
-                if (j < x && !pathEdges.has(`v_${i}_${j}`) && Math.random() < density) {
-                    const p1 = getCoords(i, j, x);
-                    const p2 = getCoords(i, j+1, x);
-                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                    line.setAttribute('x1', p1.pX);
-                    line.setAttribute('y1', p1.pY);
-                    line.setAttribute('x2', p2.pX);
-                    line.setAttribute('y2', p2.pY);
-                    wallsGroup.appendChild(line);
+                // Horizontal wall bottom of cell (i,j)
+                if (j < cols - 1 && !corridorEdges.has(`h_${i}_${j}`)) {
+                    const left = getGridLineCoords(i, j+1, cols);
+                    const right = getGridLineCoords(i+1, j+1, cols);
+                    drawLine(wallsGroup, left.pX, left.pY, right.pX, right.pY);
                 }
             }
         }
+        
+        // Draw Outer Maze Borders
+        const topleft = getGridLineCoords(0, 0, cols);
+        const topright = getGridLineCoords(cols, 0, cols);
+        const botleft = getGridLineCoords(0, cols, cols);
+        const botright = getGridLineCoords(cols, cols, cols);
+        
+        drawLine(wallsGroup, topleft.pX, topleft.pY, topright.pX, topright.pY);
+        drawLine(wallsGroup, topleft.pX, topleft.pY, botleft.pX, botleft.pY);
+        drawLine(wallsGroup, topright.pX, topright.pY, botright.pX, botright.pY);
+        drawLine(wallsGroup, botleft.pX, botleft.pY, botright.pX, botright.pY);
     }
 
     function buildOrthogonalPath(data) {
@@ -267,10 +309,13 @@ document.addEventListener('DOMContentLoaded', () => {
             
             statSteps.textContent = explicitPath.length - 1;
 
-            drawBackgroundGrid(x);
-            generateWalls(x, explicitPath);
+            // If target `x`, the coordinates go from 0 to x. This implies (x + 1) columns/cells.
+            let cols = x + 1;
+            
+            drawBackgroundGrid(cols);
+            generateWalls(cols, explicitPath);
 
-            await renderPathAnimated(explicitPath, x);
+            await renderPathAnimated(explicitPath, cols);
         } catch (err) {
             console.error("Generation error:", err);
         } finally {
@@ -280,7 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function renderPathAnimated(explicitPath, gridX) {
+    function renderPathAnimated(explicitPath, cols) {
         return new Promise(resolve => {
             let dString = "";
             let currentIndex = 0;
@@ -292,7 +337,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 const pt = explicitPath[currentIndex];
-                const { pX, pY } = getCoords(pt.i, pt.j, gridX);
+                const { pX, pY } = getCellCenter(pt.i, pt.j, cols);
                 
                 if (currentIndex === 0) {
                     dString += `M ${pX} ${pY} `;
