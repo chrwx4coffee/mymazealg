@@ -309,11 +309,44 @@ document.addEventListener('DOMContentLoaded', () => {
             
             statSteps.textContent = explicitPath.length - 1;
 
-            // If target `x`, the coordinates go from 0 to x. This implies (x + 1) columns/cells.
             let cols = x + 1;
             
             drawBackgroundGrid(cols);
             generateWalls(cols, explicitPath);
+
+            // Draw Start and End Markers immediately
+            const startPt = explicitPath[0];
+            const endPt = explicitPath[explicitPath.length - 1];
+            
+            const startCoords = getCellCenter(startPt.i, startPt.j, cols);
+            const startNode = document.createElement("div");
+            startNode.className = "node start";
+            startNode.style.left = `${startCoords.pX}px`;
+            startNode.style.top = `${startCoords.pY}px`;
+            startNode.style.transform = 'translate(-50%, -50%) scale(1)';
+            nodesContainer.appendChild(startNode);
+            
+            const startLabel = document.createElement("div");
+            startLabel.textContent = "Start";
+            startLabel.className = "marker-label target-start";
+            startLabel.style.left = `${startCoords.pX}px`;
+            startLabel.style.top = `${startCoords.pY}px`;
+            nodesContainer.appendChild(startLabel);
+            
+            const endCoords = getCellCenter(endPt.i, endPt.j, cols);
+            const endNode = document.createElement("div");
+            endNode.className = "node end";
+            endNode.style.left = `${endCoords.pX}px`;
+            endNode.style.top = `${endCoords.pY}px`;
+            endNode.style.transform = 'translate(-50%, -50%) scale(1)';
+            nodesContainer.appendChild(endNode);
+
+            const endLabel = document.createElement("div");
+            endLabel.textContent = "Finish";
+            endLabel.className = "marker-label target-end";
+            endLabel.style.left = `${endCoords.pX}px`;
+            endLabel.style.top = `${endCoords.pY}px`;
+            nodesContainer.appendChild(endLabel);
 
             await renderPathAnimated(explicitPath, cols);
         } catch (err) {
@@ -346,10 +379,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 pathSvg.setAttribute("d", dString);
 
+                // Avoid duplicating the large colored dots. Just drop generic white dots along the path.
                 const node = document.createElement("div");
                 node.className = "node";
-                if (currentIndex === 0) node.classList.add("start");
-                if (currentIndex === explicitPath.length - 1) node.classList.add("end");
                 
                 node.style.left = `${pX}px`;
                 node.style.top = `${pY}px`;
